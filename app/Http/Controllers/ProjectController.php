@@ -378,6 +378,7 @@ public function store(Request $request){
         MarketModel::create([
             'project_id' => $validated['project_id'],
             'place_name' => $validated['place_name'],
+            'type'       => 'existing',
         ]);
     }
 
@@ -701,12 +702,12 @@ public function syncProjectsFromCSV(){
 
                 // Create implementation record if project was newly created
                 $implementationExists = ImplementationModel::where('project_id', $project->project_id)->exists();
-                if (!$implementationExists) {
+                if (!$implementationExists && $progress === 'Implementation') {
                     ImplementationModel::create([
                         'project_id' => $project->project_id,
-                        'tarp' => null,
-                        'pdc' => null,
-                        'liquidation' => null,
+                        'tarp'       => null,
+                        'pdc'        => null,
+                        'liquidation'=> null,
                     ]);
                     Log::info("Row $rowIndex: Implementation record created for project ID: $projectId");
                 }
