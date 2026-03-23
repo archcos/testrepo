@@ -121,7 +121,7 @@ class RefundController extends Controller
         })
         ->withQueryString();
 
-        return Inertia::render('Refunds/Refund', [
+        return Inertia::render('Refunds/Index', [
             'projects'       => $projects,
             'selectedMonth'  => $selectedMonth,
             'selectedYear'   => $selectedYear,
@@ -198,7 +198,7 @@ class RefundController extends Controller
                 }
             }
 
-            return Inertia::render('Refunds/RefundHistory', [
+            return Inertia::render('Refunds/Details', [
                 'userRole' => $user->role,
                 'project' => [
                     'project_id' => $project->project_id,
@@ -510,7 +510,7 @@ class RefundController extends Controller
             ->distinct()
             ->pluck('year_obligated');
 
-        return Inertia::render('Refunds/UserRefund', [
+        return Inertia::render('Refunds/UserIndex', [
             'projects'      => $projects,
             'search'        => $search,
             'years'         => $years,
@@ -721,7 +721,7 @@ public function userProjectRefunds($projectId)
             }
         }
 
-        return Inertia::render('Refunds/UserRefundHistory', [
+        return Inertia::render('Refunds/UserDetails', [
             'project' => [
                 'project_id' => $project->project_id,
                 'project_title' => $project->project_title,
