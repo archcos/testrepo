@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Mail\NotificationCreatedMail;
 use App\Models\ProjectModel;
 use App\Models\RefundModel;
 use App\Models\RestructureModel;
@@ -71,7 +70,7 @@ class RefundController extends Controller
         $selectedDate = Carbon::create($selectedYear, $selectedMonth, 1);
     
         $projects = ProjectModel::with([
-            'company',
+            'proponent',
             'refunds' => function ($q) use ($selectedDate, $status) {
                 $q->whereMonth('month_paid', $selectedDate->month)
                 ->whereYear('month_paid', $selectedDate->year)
@@ -87,7 +86,7 @@ class RefundController extends Controller
         ->when($search, function ($query, $search) {
             $query->where(function ($q) use ($search) {
                 $q->where('project_title', 'like', "%{$search}%")
-                ->orWhereHas('company', function ($q) use ($search) {
+                ->orWhereHas('proponent', function ($q) use ($search) {
                     $q->where('company_name', 'like', "%{$search}%");
                 });
             });
@@ -141,7 +140,7 @@ class RefundController extends Controller
 
         try {
             $project = ProjectModel::with([
-                'company',
+                'proponent',
                 'refunds'
             ])->findOrFail($projectId);
 
@@ -209,9 +208,9 @@ class RefundController extends Controller
                     'last_refund' => $project->last_refund,
                     'refund_initial' => $project->refund_initial,
                     'refund_end' => $project->refund_end,
-                    'company' => [
-                        'company_name' => $project->company->company_name ?? 'N/A',
-                        'email' => $project->company->email ?? null,
+                    'proponent' => [
+                        'company_name' => $project->proponent->company_name ?? 'N/A',
+                        'email' => $project->proponent->email ?? null,
                     ],
                 ],
                 'months' => $months,
@@ -379,39 +378,39 @@ class RefundController extends Controller
                 Log::info('Project status updated to Completed');
             }
 
-            $company   = $project->company ?? null;
-            $ownerName = $company?->owner_name ?? 'Valued Client';
+            $proponent   = $project->proponent ?? null;
+            $ownerName = $proponent?->owner_name ?? 'Valued Client';
             $projectTitle = $project->project_title ?? 'N/A';
-            $companyName = $company?->company_name ?? 'N/A';
+            $proponentName = $proponent?->company_name ?? 'N/A';
 
             // Send email notification
-            if ($company && $company->email) {
+            if ($proponent && $proponent->email) {
                 try {
-                    Log::info('Sending email to: ' . $company->email);
+                    Log::info('Sending email to: ' . $proponent->email);
                     
-                    Mail::to($company->email)->send(
+                    Mail::to($proponent->email)->send(
                         new \App\Mail\RefundNotificationMail(
                             $ownerName,
                             $projectTitle,
-                            $companyName,
+                            $proponentName,
                             $readableMonth,
                             $data['status'],
                             $refund->amount_due
                         )
                     );
-                    Log::info("Refund notification email sent to {$company->email}");
+                    Log::info("Refund notification email sent to {$proponent->email}");
 
                     if ($savedMonthDate === $refundEnd && $completionCheck && $completionCheck['is_complete']) {
-                        Mail::to($company->email)->send(
+                        Mail::to($proponent->email)->send(
                             new \App\Mail\RefundCompletedMail(
                                 $project->project_id,
                                 now()->format('F d, Y \a\t h:i A')
                             )
                         );
-                        Log::info("Refund completion congratulations email sent to {$company->email}");
+                        Log::info("Refund completion congratulations email sent to {$proponent->email}");
                     }
                 } catch (\Exception $e) {
-                    Log::error("Failed to send refund email to {$company->email}: " . $e->getMessage());
+                    Log::error("Failed to send refund email to {$proponent->email}: " . $e->getMessage());
                 }
             }
 
@@ -433,14 +432,14 @@ class RefundController extends Controller
         $search = request('search');
         $year   = request('year');
 
-        $projects = ProjectModel::with(['company', 'refunds'])
-            ->whereHas('company', function ($q) use ($userId) {
+        $projects = ProjectModel::with(['proponent', 'refunds'])
+            ->whereHas('proponent', function ($q) use ($userId) {
                 $q->where('added_by', $userId);
             })
             ->when($search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('project_title', 'like', "%{$search}%")
-                      ->orWhereHas('company', function ($q) use ($search) {
+                      ->orWhereHas('proponent', function ($q) use ($search) {
                           $q->where('company_name', 'like', "%{$search}%");
                       });
                 });
@@ -495,7 +494,7 @@ class RefundController extends Controller
                 return [
                     'project_id'          => $project->project_id,
                     'project_title'       => $project->project_title,
-                    'company'             => $project->company->company_name ?? '-',
+                    'proponent'             => $project->proponent->company_name ?? '-',
                     'project_cost'        => $project->project_cost,
                     'total_refund'        => $totalRefund,
                     'outstanding_balance' => $outstanding,
@@ -504,7 +503,7 @@ class RefundController extends Controller
                 ];
             });
 
-        $years = ProjectModel::whereHas('company', function ($q) use ($userId) {
+        $years = ProjectModel::whereHas('proponent', function ($q) use ($userId) {
                 $q->where('added_by', $userId);
             })
             ->select('year_obligated')
@@ -533,7 +532,7 @@ class RefundController extends Controller
 
         try {
 
-            $project = ProjectModel::with('company', 'refunds')->findOrFail($data['project_id']);
+            $project = ProjectModel::with('proponent', 'refunds')->findOrFail($data['project_id']);
 
             $updatedCount = 0;
             $monthDetails = $data['month_details'] ?? [];
@@ -651,19 +650,19 @@ class RefundController extends Controller
 
     /**
  * Show detailed refund history for the logged-in user's own project
- * View-only version for company users to see their project refund details
+ * View-only version for proponent users to see their project refund details
  */
 public function userProjectRefunds($projectId)
 {
     try {
         $userId = Auth::id();
 
-        // Get project and verify it belongs to the logged-in user's company
+        // Get project and verify it belongs to the logged-in user's proponent
         $project = ProjectModel::with([
-            'company',
+            'proponent',
             'refunds'
         ])
-        ->whereHas('company', function ($q) use ($userId) {
+        ->whereHas('proponent', function ($q) use ($userId) {
             $q->where('added_by', $userId);
         })
         ->findOrFail($projectId);
@@ -731,9 +730,9 @@ public function userProjectRefunds($projectId)
                 'last_refund' => $project->last_refund,
                 'refund_initial' => $project->refund_initial,
                 'refund_end' => $project->refund_end,
-                'company' => [
-                    'company_name' => $project->company->company_name ?? 'N/A',
-                    'email' => $project->company->email ?? null,
+                'proponent' => [
+                    'company_name' => $project->proponent->company_name ?? 'N/A',
+                    'email' => $project->proponent->email ?? null,
                 ],
             ],
             'months' => $months,

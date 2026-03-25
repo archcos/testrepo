@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 use Inertia\Inertia;
-use App\Models\CompanyModel;
+use App\Models\ProponentModel;
 use App\Models\OfficeModel;
 use App\Models\UserModel;
 use Illuminate\Http\Request;
@@ -10,14 +10,14 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class CompanyController extends Controller
+class ProponentController extends Controller
 {
     
 public function index(Request $request)
 {
     $user = Auth::user();
 
-    $query = CompanyModel::with(['office', 'addedByUser'])->withCount('projects');
+    $query = ProponentModel::with(['office', 'addedByUser'])->withCount('projects');
 
     // Get all users sorted alphabetically
     $allUsers = UserModel::select('user_id', 'first_name', 'last_name')
@@ -68,27 +68,27 @@ public function index(Request $request)
     }
 
     // Sorting
-    $sortField = $request->input('sort', 'company_id');
+    $sortField = $request->input('sort', 'proponent_id');
     $sortDirection = $request->input('direction', 'desc');
 
-    $allowedSorts = ['company_id', 'company_name', 'owner_name', 'email', 'industry_type', 'setup_industry', 'created_at'];
+    $allowedSorts = ['proponent_id', 'company_name', 'owner_name', 'email', 'industry_type', 'setup_industry', 'created_at'];
     if (!in_array($sortField, $allowedSorts)) {
-        $sortField = 'company_id';
+        $sortField = 'proponent_id';
     }
 
     $sortDirection = in_array($sortDirection, ['asc', 'desc']) ? $sortDirection : 'asc';
     $query->orderBy($sortField, $sortDirection);
 
     $perPage = $request->input('perPage', 10);
-    $companies = $query->paginate($perPage)->withQueryString();
+    $proponents = $query->paginate($perPage)->withQueryString();
     $availableYears = \App\Models\ProjectModel::select('year_obligated')
     ->whereNotNull('year_obligated')
     ->distinct()
     ->orderBy('year_obligated', 'desc')
     ->pluck('year_obligated');
 
-    return Inertia::render('Companies/Index', [
-        'companies' => $companies,
+    return Inertia::render('Proponents/Index', [
+        'proponents' => $proponents,
         'filters' => $request->only('search', 'perPage', 'office', 'industry_type', 'setup_industry', 'sort', 'direction'),
         'allUsers' => $user->role === 'rpmo' ? $allUsers : null,
         'allOffices' => $allOffices,
@@ -109,13 +109,13 @@ public function updateAddedBy(Request $request, $id)
         'added_by' => 'required|exists:tbl_users,user_id',
     ]);
 
-    $company = CompanyModel::findOrFail($id);
-    $oldUser = $company->addedByUser->name;
+    $proponent = ProponentModel::findOrFail($id);
+    $oldUser = $proponent->addedByUser->name;
     $newUser = UserModel::find($request->added_by)->name;
     
-    $company->update(['added_by' => $request->added_by]);
+    $proponent->update(['added_by' => $request->added_by]);
 
-    Log::info("Company '{$company->company_name}' added_by changed from {$oldUser} to {$newUser}");
+    Log::info("proponent '{$proponent->company_name}' added_by changed from {$oldUser} to {$newUser}");
 
     return back()->with('success', "Added By updated from {$oldUser} to {$newUser}.");
 }
@@ -123,7 +123,7 @@ public function updateAddedBy(Request $request, $id)
 
 public function create()
 {
-    return Inertia::render('Companies/Create');
+    return Inertia::render('Proponents/Create');
 }
 
 public function store(Request $request)
@@ -150,23 +150,23 @@ public function store(Request $request)
     $validated['office_id'] = $user->office_id;
 
     if ($user->role === 'user') {
-        $count = CompanyModel::where('added_by', $user->user_id)->count();
+        $count = ProponentModel::where('added_by', $user->user_id)->count();
         if ($count >= 5) {
             return back()->with('error', 'You have reached the maximum limit of 5 proponents.');
         }
     }
 
 
-    CompanyModel::create($validated);
+    ProponentModel::create($validated);
 
-    return redirect()->route('proponents.index')->with('success', 'Company added successfully.');
+    return redirect()->route('proponents.index')->with('success', 'proponent added successfully.');
 }
 
 public function export(Request $request)
 {
     $user = Auth::user();
 
-    $query = CompanyModel::with(['office', 'addedByUser', 'projects']);
+    $query = ProponentModel::with(['office', 'addedByUser', 'projects']);
 
     // Role-based filtering
     if ($user->role === 'user') {
@@ -205,7 +205,7 @@ public function export(Request $request)
         });
     }
 
-    $companies = $query->orderBy('company_name')->get();
+    $proponents = $query->orderBy('company_name')->get();
 
     $filename = 'proponents_' . now()->format('Ymd_His') . '.csv';
 
@@ -217,12 +217,12 @@ public function export(Request $request)
         'Expires'             => '0',
     ];
 
-    $callback = function () use ($companies) {
+    $callback = function () use ($proponents) {
         $handle = fopen('php://output', 'w');
 
         fputcsv($handle, [
             'ID',
-            'Company Name',
+            'proponent Name',
             'Owner Name',
             'Email',
             'Contact Number',
@@ -240,9 +240,9 @@ public function export(Request $request)
             'Project Years',
         ]);
 
-        foreach ($companies as $company) {
-            // Collect all unique year_obligated values for this company's projects
-            $projectYears = $company->projects
+        foreach ($proponents as $proponent) {
+            // Collect all unique year_obligated values for this proponent's projects
+            $projectYears = $proponent->projects
                 ->pluck('year_obligated')
                 ->filter()
                 ->unique()
@@ -250,22 +250,22 @@ public function export(Request $request)
                 ->implode(', ');
 
             fputcsv($handle, [
-                $company->company_id,
-                $company->company_name,
-                $company->owner_name,
-                $company->email,
-                $company->contact_number,
-                $company->street,
-                $company->barangay,
-                $company->municipality,
-                $company->province,
-                $company->district,
-                $company->sex,
-                $company->industry_type,
-                $company->setup_industry,
-                $company->products,
-                $company->office?->office_name,
-                $company->addedByUser?->first_name . ' ' . $company->addedByUser?->last_name,
+                $proponent->proponent_id,
+                $proponent->company_name,
+                $proponent->owner_name,
+                $proponent->email,
+                $proponent->contact_number,
+                $proponent->street,
+                $proponent->barangay,
+                $proponent->municipality,
+                $proponent->province,
+                $proponent->district,
+                $proponent->sex,
+                $proponent->industry_type,
+                $proponent->setup_industry,
+                $proponent->products,
+                $proponent->office?->office_name,
+                $proponent->addedByUser?->first_name . ' ' . $proponent->addedByUser?->last_name,
                 $projectYears,
             ]);
         }
@@ -346,9 +346,9 @@ public function syncFromCSV()
                 continue;
             }
 
-            $exists = CompanyModel::where('company_name', $company_name)->first();
+            $exists = ProponentModel::where('company_name', $company_name)->first();
             if ($exists) {
-                Log::info("Skipped row $rowIndex existing company: $company_name");
+                Log::info("Skipped row $rowIndex existing proponent: $company_name");
                 continue;
             }
 
@@ -357,7 +357,7 @@ public function syncFromCSV()
             $officeId = $officeMap[$provinceName] ?? (session('office_id') ?? 1);
 
             try {
-                CompanyModel::create([
+                ProponentModel::create([
                     'company_name'     => $company_name,
                     'owner_name'       => $data['CEO'] ?? null,
                     'email'            => $data['Email'] ?? null,
@@ -387,10 +387,10 @@ public function syncFromCSV()
 
         fclose($stream);
 
-        Log::info("Company CSV sync complete. Total new: $newRecords");
-        return back()->with('success', "$newRecords companies synced.");
+        Log::info("proponent CSV sync complete. Total new: $newRecords");
+        return back()->with('success', "$newRecords proponents synced.");
     } catch (\Exception $e) {
-        Log::error('Company CSV Sync failed: ' . $e->getMessage());
+        Log::error('proponent CSV Sync failed: ' . $e->getMessage());
         return back()->with('error', 'Sync failed. Please try again.');
     }
 }
@@ -398,10 +398,10 @@ public function syncFromCSV()
 
 public function edit($id)
 {
-    $company = CompanyModel::findOrFail($id);
+    $proponent = ProponentModel::findOrFail($id);
 
-    return Inertia::render('Companies/Edit', [
-        'company' => $company,
+    return Inertia::render('Proponents/Edit', [
+        'proponent' => $proponent,
     ]);
 }
 
@@ -424,23 +424,23 @@ public function update(Request $request, $id)
         // 'current_market'   => 'nullable|string|max:100',
     ]);
 
-    $company = CompanyModel::findOrFail($id);
-    $company->update($validated);
+    $proponent = ProponentModel::findOrFail($id);
+    $proponent->update($validated);
 
-    return redirect()->route('proponents.index')->with('success', 'Company updated successfully.');
+    return redirect()->route('proponents.index')->with('success', 'proponent updated successfully.');
 }
 
 
 public function destroy($id)
 {
-    $company = CompanyModel::withCount('projects')->findOrFail($id);
+    $proponent = ProponentModel::withCount('projects')->findOrFail($id);
 
-    if ($company->projects_count > 0) {
+    if ($proponent->projects_count > 0) {
         return back()->with('error', 'Cannot delete this proponent because it has associated projects.');
     }
 
-    $company->delete();
+    $proponent->delete();
 
-    return redirect()->route('proponents.index')->with('success', 'Company deleted successfully.');
+    return redirect()->route('proponents.index')->with('success', 'proponent deleted successfully.');
 }
 }
