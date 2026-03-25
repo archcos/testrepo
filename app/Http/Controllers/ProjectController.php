@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\ProjectCreatedMail;
 use App\Models\ObjectiveModel;
 use App\Models\ProjectModel;
-use App\Models\CompanyModel;
+use App\Models\ProponentModel;
 use App\Models\ImplementationModel;
 use App\Models\ItemModel;
 use App\Models\MarketModel;
@@ -24,7 +24,7 @@ class ProjectController extends Controller
 {
 
 private const VALID_PROGRESS_STATUSES = [
-    'Company Details',
+    'Proponent Details',
     'Project Created',
     'internal_rtec',
     'internal_compliance',
@@ -56,7 +56,7 @@ private const VALID_PROGRESS_STATUSES = [
         $yearFilter = $request->input('yearFilter');
 
         $query = ProjectModel::with([
-            'company.office',
+            'proponent.office',
             'items' => function ($q) {
                 $q->where('report', 'approved');
             },
@@ -68,7 +68,7 @@ private const VALID_PROGRESS_STATUSES = [
         if ($user->role === 'user') {
             $query->where('added_by', $user->user_id);
         } elseif ($user->role === 'staff') {
-            $query->whereHas('company', function ($q) use ($user) {
+            $query->whereHas('proponent', function ($q) use ($user) {
                 $q->where('office_id', $user->office_id);
             });
         }
@@ -79,7 +79,7 @@ private const VALID_PROGRESS_STATUSES = [
                     ->orWhere('project_id', 'like', "%{$search}%")
                     ->orWhere('project_cost', 'like', "%{$search}%")
                     ->orWhere('progress', 'like', "%{$search}%")
-                    ->orWhereHas('company', function ($q) use ($search) {
+                    ->orWhereHas('proponent', function ($q) use ($search) {
                         $q->where('company_name', 'like', "%{$search}%");
                     })
                     ->orWhereHas('items', function ($q) use ($search) {
@@ -90,7 +90,7 @@ private const VALID_PROGRESS_STATUSES = [
         }
 
         if ($officeFilter) {
-            $query->whereHas('company', function ($q) use ($officeFilter) {
+            $query->whereHas('proponent', function ($q) use ($officeFilter) {
                 $q->where('office_id', $officeFilter);
             });
         }
@@ -116,8 +116,8 @@ private const VALID_PROGRESS_STATUSES = [
         } elseif ($sortField === 'fund_release') {
             $query->orderBy('fund_release', $sortDirection);
         } elseif ($sortField === 'company_name') {
-            $query->join('tbl_companies', 'tbl_projects.company_id', '=', 'tbl_companies.company_id')
-                    ->orderBy('tbl_companies.company_name', $sortDirection)
+            $query->join('tbl_proponents', 'tbl_projects.proponent_id', '=', 'tbl_proponents.proponent_id')
+                    ->orderBy('tbl_proponents.company_name', $sortDirection)
                     ->select('tbl_projects.*');
         } else {
             $query->orderBy('project_title', 'asc');
@@ -134,7 +134,7 @@ private const VALID_PROGRESS_STATUSES = [
         if ($user->role === 'user') {
             $yearQuery->where('added_by', $user->user_id);
         } elseif ($user->role === 'staff') {
-            $yearQuery->whereHas('company', function ($q) use ($user) {
+            $yearQuery->whereHas('proponent', function ($q) use ($user) {
                 $q->where('office_id', $user->office_id);
             });
         }
@@ -197,18 +197,18 @@ private const VALID_PROGRESS_STATUSES = [
     public function create(){
         $user = Auth::user();
 
-        $companies = CompanyModel::query();
+        $proponents = ProponentModel::query();
 
         if ($user->role === 'staff') {
-            $companies->where('office_id', $user->office_id);
+            $proponents->where('office_id', $user->office_id);
         } elseif ($user->role === 'user') {
-            $companies->where('added_by', $user->user_id);
+            $proponents->where('added_by', $user->user_id);
         }
 
         $nextProjectCode = $this->generateNextProjectCode();
 
         return Inertia::render('Projects/Create', [
-            'companies' => $companies->orderBy('company_name')->get(),
+            'proponents' => $proponents->orderBy('company_name')->get(),
             'nextProjectCode' => $nextProjectCode
         ]);
     }
@@ -254,7 +254,7 @@ private const VALID_PROGRESS_STATUSES = [
         $validated = $request->validate([
             'project_id'        => 'required|string|max:255|regex:/^\d{8}$/|unique:tbl_projects,project_id',
             'project_title'     => 'required|string|max:255',
-            'company_id'        => 'required|exists:tbl_companies,company_id',
+            'proponent_id'        => 'required|exists:tbl_proponents,proponent_id',
             'fund_release'      => 'nullable|date',
             'project_cost'      => 'required|numeric',
             'counterpart'       => 'nullable|numeric',
@@ -297,7 +297,7 @@ private const VALID_PROGRESS_STATUSES = [
         $project = ProjectModel::create([
             'project_id'        => $validated['project_id'],
             'project_title'     => $validated['project_title'],
-            'company_id'        => $validated['company_id'],
+            'proponent_id'        => $validated['proponent_id'],
             'project_cost'      => $validated['project_cost'],
             'counterpart'       => $validated['counterpart'] ?? null,
             'latitude'          => $validated['latitude'] ?? null,
@@ -305,7 +305,7 @@ private const VALID_PROGRESS_STATUSES = [
             'released_amount'   => $validated['released_amount'] ?? null,   // NEW
             'refund_amount'     => $validated['refund_amount'] ?? null,
             'last_refund'       => $validated['last_refund'] ?? null,
-            'progress'          => $validated['progress'] ?? 'Company Details',
+            'progress'          => $validated['progress'] ?? 'Proponent Details',
             'year_obligated'    => $validated['year_obligated'] ?? null,
             'revenue'           => $validated['revenue'] ?? null,
             'net_income'        => $validated['net_income'] ?? null,
@@ -360,14 +360,14 @@ private const VALID_PROGRESS_STATUSES = [
             ]);
         }
 
-        $company = CompanyModel::findOrFail($validated['company_id']);
-        $officeUsers = UserModel::where('office_id', $company->office_id)
+        $proponent = ProponentModel::findOrFail($validated['proponent_id']);
+        $officeUsers = UserModel::where('office_id', $proponent->office_id)
             ->whereIn('role', ['rpmo', 'staff'])
             ->get();
 
         foreach ($officeUsers as $officeUser) {
             try {
-                Mail::to($officeUser->email)->send(new ProjectCreatedMail($project, $company, $user));
+                Mail::to($officeUser->email)->send(new ProjectCreatedMail($project, $proponent, $user));
                 Log::info("Project creation email sent to {$officeUser->email}");
             } catch (\Exception $e) {
                 Log::error("Failed to send project creation email to {$officeUser->email}: " . $e->getMessage());
@@ -382,14 +382,14 @@ private const VALID_PROGRESS_STATUSES = [
         $user = Auth::user();
 
         $query = ProjectModel::with([
-            'company.office',
+            'proponent.office',
             'items' => fn($q) => $q->where('report', 'approved'),
             'objectives' => fn($q) => $q->where('report', 'approved'),
             'markets' => fn($q) => $q->where('type', 'existing'),
         ]);
 
         if ($user->role === 'staff') {
-            $query->whereHas('company', fn($q) => $q->where('office_id', $user->office_id));
+            $query->whereHas('proponent', fn($q) => $q->where('office_id', $user->office_id));
         } elseif ($user->role === 'user') {
             $query->where('added_by', $user->user_id);
         }
@@ -398,7 +398,7 @@ private const VALID_PROGRESS_STATUSES = [
             $query->whereIn('year_obligated', (array) $request->input('year'));
         }
         if ($request->filled('office')) {
-            $query->whereHas('company', fn($q) => $q->whereIn('office_id', (array) $request->input('office')));
+            $query->whereHas('proponent', fn($q) => $q->whereIn('office_id', (array) $request->input('office')));
         }
         if ($request->filled('progress')) {
             $query->whereIn('progress', (array) $request->input('progress'));
@@ -424,7 +424,7 @@ private const VALID_PROGRESS_STATUSES = [
                 'Year Obligated',
                 'Project Title',
                 'Progress/Status',
-                'Company Name',
+                'proponent Name',
                 'Owner Name',
                 'Office',
                 'Fund Release Date',
@@ -485,9 +485,9 @@ private const VALID_PROGRESS_STATUSES = [
                     $project->year_obligated,
                     $project->project_title,
                     $project->progress,
-                    $project->company?->company_name,
-                    $project->company?->owner_name,
-                    $project->company?->office?->office_name,
+                    $project->proponent?->company_name,
+                    $project->proponent?->owner_name,
+                    $project->proponent?->office?->office_name,
                     $project->fund_release,
                     $project->released_amount,              // NEW
                     $project->release_initial,
@@ -532,11 +532,11 @@ private const VALID_PROGRESS_STATUSES = [
             'markets' => fn($q) => $q->where('type', 'existing'),
         ])->findOrFail($id);
 
-        $companies = CompanyModel::all();
+        $proponents = ProponentModel::all();
 
         return Inertia::render('Projects/Edit', [
             'project' => $project,
-            'companies' => $companies,
+            'proponents' => $proponents,
         ]);
     }
 
@@ -548,7 +548,7 @@ private const VALID_PROGRESS_STATUSES = [
 
         $validated = $request->validate([
             'project_title'     => 'required|string|max:255',
-            'company_id'        => 'required|exists:tbl_companies,company_id',
+            'proponent_id'        => 'required|exists:tbl_proponents,proponent_id',
             'project_cost'      => 'required|numeric',
             'counterpart'       => 'nullable|numeric',
             'latitude'          => 'nullable|numeric|between:-90,90',
@@ -588,7 +588,7 @@ private const VALID_PROGRESS_STATUSES = [
 
         $project->update([
             'project_title'     => $validated['project_title'],
-            'company_id'        => $validated['company_id'],
+            'proponent_id'        => $validated['proponent_id'],
             'project_cost'      => $validated['project_cost'],
             'counterpart'       => $validated['counterpart'] ?? null,
             'fund_release'      => $validated['fund_release'] ?? null,
@@ -689,11 +689,11 @@ private const VALID_PROGRESS_STATUSES = [
                     $data = array_combine(array_values($header), $row);
                     if (!$data) continue;
 
-                    $companyName = trim($data['Name of the Business'] ?? '');
-                    if (!$companyName) continue;
+                    $proponentName = trim($data['Name of the Business'] ?? '');
+                    if (!$proponentName) continue;
 
-                    $company = CompanyModel::where('company_name', $companyName)->first();
-                    if (!$company) continue;
+                    $proponent = ProponentModel::where('company_name', $proponentName)->first();
+                    if (!$proponent) continue;
 
                     $projectCode = preg_replace('/[^0-9]/', '', $data['Project Code'] ?? '');
                     if (empty($projectCode)) continue;
@@ -728,7 +728,7 @@ private const VALID_PROGRESS_STATUSES = [
                         ['project_id' => $projectId],
                         [
                             'project_title'    => $data['Name of Project'] ?? null,
-                            'company_id'       => $company->company_id,
+                            'proponent_id'       => $proponent->proponent_id,
                             'release_initial'  => $releaseInitial,
                             'release_end'      => $releaseEnd,
                             'refund_initial'   => $refundInitial,
@@ -844,13 +844,13 @@ private const VALID_PROGRESS_STATUSES = [
             return Inertia::render('Projects/ProjectList', ['projects' => collect()]);
         }
 
-        $query = ProjectModel::with(['company', 'items' => fn($q) => $q->where('report', 'approved')]);
+        $query = ProjectModel::with(['proponent', 'items' => fn($q) => $q->where('report', 'approved')]);
 
         if ($user->role === 'user') {
-            $companyIds = CompanyModel::where('added_by', $user->user_id)->pluck('company_id');
-            $query->whereIn('company_id', $companyIds);
+            $proponentIds = ProponentModel::where('added_by', $user->user_id)->pluck('proponent_id');
+            $query->whereIn('proponent_id', $proponentIds);
         } elseif ($user->role === 'staff') {
-            $query->whereHas('company', fn($q) => $q->where('office_id', $user->office_id));
+            $query->whereHas('proponent', fn($q) => $q->where('office_id', $user->office_id));
         }
 
         return Inertia::render('Projects/ProjectList', ['projects' => $query->get()]);
