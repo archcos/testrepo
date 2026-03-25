@@ -56,38 +56,40 @@ class RefundController extends Controller
         return $project->refund_amount ?? 0;
     }
 
-    public function index()
-    {
-
+    public function index(){
         $user = Auth::user();
-
-        $selectedMonth = request('month', now()->month);
-        $selectedYear  = request('year', now()->year);
+    
+        $selectedMonth = request('month',   now()->month);
+        $selectedYear  = request('year',    now()->year);
         $search        = request('search');
         $status        = request('status');
-
+        $perPage       = (int) request('perPage', 10);   // ← add this line
+    
+        // clamp to sensible values so users can't pass perPage=999999
+        $perPage = in_array($perPage, [10, 20, 50, 100]) ? $perPage : 10;
+    
         $selectedDate = Carbon::create($selectedYear, $selectedMonth, 1);
-
+    
         $projects = ProjectModel::with([
             'company',
             'refunds' => function ($q) use ($selectedDate, $status) {
                 $q->whereMonth('month_paid', $selectedDate->month)
-                  ->whereYear('month_paid', $selectedDate->year)
-                  ->latest();
-
+                ->whereYear('month_paid', $selectedDate->year)
+                ->latest();
+    
                 if ($status && $status !== 'unpaid') {
                     $q->where('status', $status);
                 }
             }
         ])
         ->whereDate('refund_initial', '<=', $selectedDate)
-        ->whereDate('refund_end', '>=', $selectedDate)
+        ->whereDate('refund_end',     '>=', $selectedDate)
         ->when($search, function ($query, $search) {
             $query->where(function ($q) use ($search) {
                 $q->where('project_title', 'like', "%{$search}%")
-                  ->orWhereHas('company', function ($q) use ($search) {
-                      $q->where('company_name', 'like', "%{$search}%");
-                  });
+                ->orWhereHas('company', function ($q) use ($search) {
+                    $q->where('company_name', 'like', "%{$search}%");
+                });
             });
         })
         ->when($status, function ($query, $status) use ($selectedDate) {
@@ -95,41 +97,40 @@ class RefundController extends Controller
                 $query->where(function ($q) use ($selectedDate) {
                     $q->whereDoesntHave('refunds', function ($subQ) use ($selectedDate) {
                         $subQ->whereMonth('month_paid', $selectedDate->month)
-                             ->whereYear('month_paid', $selectedDate->year);
+                            ->whereYear('month_paid', $selectedDate->year);
                     })
                     ->orWhereHas('refunds', function ($subQ) use ($selectedDate) {
                         $subQ->whereMonth('month_paid', $selectedDate->month)
-                             ->whereYear('month_paid', $selectedDate->year)
-                             ->where('status', 'unpaid');
+                            ->whereYear('month_paid', $selectedDate->year)
+                            ->where('status', 'unpaid');
                     });
                 });
             } else {
                 $query->whereHas('refunds', function ($q) use ($selectedDate, $status) {
                     $q->whereMonth('month_paid', $selectedDate->month)
-                      ->whereYear('month_paid', $selectedDate->year)
-                      ->where('status', $status);
+                    ->whereYear('month_paid', $selectedDate->year)
+                    ->where('status', $status);
                 });
             }
         })
-        ->paginate(10)
+        ->paginate($perPage)                              // ← was ->paginate(10)
         ->through(function ($project) use ($selectedDate) {
-            // Get the refund amount considering restructures and their updates
             $refundAmount = $this->getRefundAmountForMonth($project, $selectedDate);
             $project->refund_amount = $refundAmount;
-
             return $project;
         })
         ->withQueryString();
-
+    
         return Inertia::render('Refunds/Index', [
             'projects'       => $projects,
             'selectedMonth'  => $selectedMonth,
             'selectedYear'   => $selectedYear,
             'search'         => $search,
             'selectedStatus' => $status,
-            'userRole' => $user->role,
+            'userRole'       => $user->role,
         ]);
     }
+ 
 
     /**
      * Show detailed refund history for a specific project
