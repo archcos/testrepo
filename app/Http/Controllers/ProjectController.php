@@ -157,7 +157,15 @@ private const VALID_PROGRESS_STATUSES = [
         ]);
     }
 
+    // FIXED: Added authorization check for status updates
     public function updateStatus(Request $request, $id){
+        $user = Auth::user();
+        
+        // ✅ SECURITY FIX: Only RPMO can update project status
+        if ($user->role !== 'rpmo') {
+            return back()->with('error', 'Unauthorized: Only RPMO can update project status.');
+        }
+
         $validated = $request->validate([
             'progress' => 'required|string|in:' . implode(',', self::VALID_PROGRESS_STATUSES),
         ]);
@@ -856,8 +864,16 @@ private const VALID_PROGRESS_STATUSES = [
         return Inertia::render('Projects/ProjectList', ['projects' => $query->get()]);
     }
 
+    // FIXED: Added authorization check for delete
     public function destroy($id)
     {
+        $user = Auth::user();
+        
+        // ✅ SECURITY FIX: Only RPMO can delete projects
+        if ($user->role !== 'rpmo') {
+            return back()->with('error', 'Unauthorized: Only RPMO can delete projects.');
+        }
+
         ProjectModel::findOrFail($id)->delete();
         return redirect('/projects')->with('success', 'Project deleted successfully.');
     }
