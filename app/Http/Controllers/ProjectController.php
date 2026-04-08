@@ -660,6 +660,14 @@ private const VALID_PROGRESS_STATUSES = [
     }
 
     public function syncProjectsFromCSV(){
+
+        $user = Auth::user();
+
+        // Only RPMO can trigger CSV sync
+        if (!$user || $user->role !== 'rpmo') {
+            return back()->with('error', 'Unauthorized: Only RPMO can sync projects from CSV.');
+        }
+        
         $csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQoYM37FSpNPcliFztgpSVgglK0XyoDLSdhOftcdqmy2mV-83VVxuUf9EdcE57gFG36r06rwH66CZQO/pub?gid=0&single=true&output=csv';
 
         try {
