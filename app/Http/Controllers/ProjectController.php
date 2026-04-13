@@ -385,8 +385,7 @@ private const VALID_PROGRESS_STATUSES = [
         return redirect('/projects')->with('success', 'Project, items, and objectives created successfully.');
     }
 
-    public function export(Request $request)
-    {
+    public function export(Request $request){
         $user = Auth::user();
 
         $query = ProjectModel::with([
@@ -396,18 +395,31 @@ private const VALID_PROGRESS_STATUSES = [
             'markets' => fn($q) => $q->where('type', 'existing'),
         ]);
 
+        // Role-based filtering
         if ($user->role === 'staff') {
             $query->whereHas('proponent', fn($q) => $q->where('office_id', $user->office_id));
         } elseif ($user->role === 'user') {
             $query->where('added_by', $user->user_id);
         }
+        // rpmo sees all - no filtering
 
         if ($request->filled('year')) {
             $query->whereIn('year_obligated', (array) $request->input('year'));
         }
+        
         if ($request->filled('office')) {
-            $query->whereHas('proponent', fn($q) => $q->whereIn('office_id', (array) $request->input('office')));
+            $offices = (array) $request->input('office');
+            
+            // Staff can only filter within their own office
+            if ($user->role === 'staff') {
+                $offices = array_intersect($offices, [$user->office_id]);
+            }
+            
+            if (!empty($offices)) {
+                $query->whereHas('proponent', fn($q) => $q->whereIn('office_id', $offices));
+            }
         }
+        
         if ($request->filled('progress')) {
             $query->whereIn('progress', (array) $request->input('progress'));
         }
@@ -436,8 +448,8 @@ private const VALID_PROGRESS_STATUSES = [
                 'Owner Name',
                 'Office',
                 'Fund Release Date',
-                'Released Date',                    // NEW
-                'Released Amount',                  // NEW
+                'Released Date',
+                'Released Amount',
                 'Release Initial',
                 'Release End',
                 'Refund Initial',
@@ -497,7 +509,7 @@ private const VALID_PROGRESS_STATUSES = [
                     $project->proponent?->owner_name,
                     $project->proponent?->office?->office_name,
                     $project->fund_release,
-                    $project->released_amount,              // NEW
+                    $project->released_amount,
                     $project->release_initial,
                     $project->release_end,
                     $project->refund_initial,
@@ -667,7 +679,7 @@ private const VALID_PROGRESS_STATUSES = [
         if (!$user || $user->role !== 'rpmo') {
             return back()->with('error', 'Unauthorized: Only RPMO can sync projects from CSV.');
         }
-        
+
         $csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQoYM37FSpNPcliFztgpSVgglK0XyoDLSdhOftcdqmy2mV-83VVxuUf9EdcE57gFG36r06rwH66CZQO/pub?gid=0&single=true&output=csv';
 
         try {

@@ -172,8 +172,9 @@ public function export(Request $request)
     if ($user->role === 'user') {
         $query->where('added_by', $user->user_id);
     } elseif ($user->role === 'staff') {
-        $query->where('office_id', $user->office_id);
+        $query->where('office_id', $user->office_id); // Staff locked to their office
     }
+    // rpmo sees all - no filtering
 
     // Filter by year (supports multiple)
     if ($request->filled('year')) {
@@ -183,10 +184,18 @@ public function export(Request $request)
         });
     }
 
-    // Filter by office (supports multiple)
+    // Filter by office (supports multiple) - but respect role restrictions
     if ($request->filled('office')) {
         $offices = (array) $request->input('office');
-        $query->whereIn('office_id', $offices);
+        
+        // Staff can only filter within their own office
+        if ($user->role === 'staff') {
+            $offices = array_intersect($offices, [$user->office_id]);
+        }
+        
+        if (!empty($offices)) {
+            $query->whereIn('office_id', $offices);
+        }
     }
 
     // Filter by industry type (supports multiple)
@@ -285,7 +294,7 @@ public function syncFromCSV()
     if (!$user || $user->role !== 'rpmo') {
         return back()->with('error', 'Unauthorized: Only RPMO can sync projects from CSV.');
     }
-    
+
     $csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQoYM37FSpNPcliFztgpSVgglK0XyoDLSdhOftcdqmy2mV-83VVxuUf9EdcE57gFG36r06rwH66CZQO/pub?gid=0&single=true&output=csv';
     
     try {
