@@ -86,6 +86,7 @@ class RefundController extends Controller
         ->when($search, function ($query, $search) {
             $query->where(function ($q) use ($search) {
                 $q->where('project_title', 'like', "%{$search}%")
+                ->orWhere('project_id', 'like', "%{$search}%")
                 ->orWhereHas('proponent', function ($q) use ($search) {
                     $q->where('company_name', 'like', "%{$search}%");
                 });
