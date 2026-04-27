@@ -794,16 +794,162 @@ private const VALID_PROGRESS_STATUSES = [
             }
 
             fclose($stream);
-
+            $geoSummary = $this->syncGeoAndObjectivesFromCSV();
+          
             $message = "$newRecords projects synced successfully.";
             if (!empty($errors)) $message .= ' ' . count($errors) . ' rows had errors.';
-
+            
+            $message .= ' ' . $geoSummary;
             return back()->with('success', $message);
 
         } catch (\Exception $e) {
             Log::error('Project CSV Sync failed: ' . $e->getMessage());
             return back()->with('error', 'Sync failed: ' . $e->getMessage());
         }
+    }
+
+    private function syncGeoAndObjectivesFromCSV(): string{
+        $csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRLSw0NCjDZCoxhueEpH3KbTTHDCXOq8r4TEcWVp6_guaNza4SOS5XUBL4CiFbbT4DsZcsUPKXnG8kh/pub?gid=55614296&single=true&output=csv';
+    
+        try {
+            $response = Http::timeout(300)->get($csvUrl);
+    
+            if (!$response->ok()) {
+                Log::error('Failed to fetch geo CSV: ' . $response->status());
+                return 'Geo sync failed: could not fetch CSV.';
+            }
+    
+            $stream = fopen('php://memory', 'r+');
+            fwrite($stream, $response->body());
+            rewind($stream);
+    
+            $rawHeader = fgetcsv($stream);
+            if (!$rawHeader) {
+                return 'Geo sync failed: CSV has no header row.';
+            }
+    
+            $header = array_map(fn($col) => preg_replace('/\s+/', ' ', trim($col)), $rawHeader);
+    
+            // Locate columns — add more aliases here if your headers differ
+            $colTitle      = $this->findColumnIndex($header, ['Project Title', 'Name of Project', 'Project Name']);
+            $colLat        = $this->findColumnIndex($header, ['Latitude', 'Lat']);
+            $colLng        = $this->findColumnIndex($header, ['Longitude', 'Long', 'Lng']);
+            $colObjectives = $this->findColumnIndex($header, ['Objectives', 'Objective', 'Project Objectives']);
+    
+            if ($colTitle === null) {
+                return 'Geo sync failed: no "Project Title" column found. Headers: ' . implode(', ', $header);
+            }
+    
+            $updatedProjects = 0;
+            $skippedRows     = 0;
+            $objectivesAdded = 0;
+            $errors          = [];
+            $rowIndex        = 1;
+    
+            while (($row = fgetcsv($stream)) !== false) {
+                $rowIndex++;
+    
+                try {
+                    $row = array_map('trim', $row);
+                    if (count(array_filter($row)) === 0) continue;
+    
+                    $projectTitle = $row[$colTitle] ?? '';
+                    if (empty($projectTitle)) {
+                        $skippedRows++;
+                        continue;
+                    }
+    
+                    $project = ProjectModel::whereRaw(
+                        'LOWER(TRIM(project_title)) = ?',
+                        [strtolower(trim($projectTitle))]
+                    )->first();
+    
+                    if (!$project) {
+                        Log::warning("Geo CSV row $rowIndex: No project found for title \"{$projectTitle}\"");
+                        $skippedRows++;
+                        continue;
+                    }
+    
+                    // ── Latitude & Longitude ──────────────────────────────────────
+                    $updateData = [];
+    
+                    if ($colLat !== null && ($row[$colLat] ?? '') !== '') {
+                        $lat = $this->sanitizeNumeric($row[$colLat]);
+                        if ($lat !== null && $lat >= -90 && $lat <= 90) {
+                            $updateData['latitude'] = $lat;
+                        } else {
+                            $errors[] = "Row $rowIndex: invalid latitude \"{$row[$colLat]}\" for \"{$projectTitle}\"";
+                        }
+                    }
+    
+                    if ($colLng !== null && ($row[$colLng] ?? '') !== '') {
+                        $lng = $this->sanitizeNumeric($row[$colLng]);
+                        if ($lng !== null && $lng >= -180 && $lng <= 180) {
+                            $updateData['longitude'] = $lng;
+                        } else {
+                            $errors[] = "Row $rowIndex: invalid longitude \"{$row[$colLng]}\" for \"{$projectTitle}\"";
+                        }
+                    }
+    
+                    if (!empty($updateData)) {
+                        $project->update($updateData);
+                        $updatedProjects++;
+                    }
+    
+                    // ── Objectives ────────────────────────────────────────────────
+                    if ($colObjectives !== null && ($row[$colObjectives] ?? '') !== '') {
+                        $lines = preg_split('/\r\n|\r|\n/', $row[$colObjectives]);
+    
+                        foreach ($lines as $line) {
+                            $detail = trim($line);
+                            if (empty($detail)) continue;
+    
+                            $alreadyExists = ObjectiveModel::where('project_id', $project->project_id)
+                                ->where('details', $detail)
+                                ->where('report', 'approved')
+                                ->exists();
+    
+                            if (!$alreadyExists) {
+                                ObjectiveModel::create([
+                                    'project_id' => $project->project_id,
+                                    'details'    => $detail,
+                                    'report'     => 'approved',
+                                ]);
+                                $objectivesAdded++;
+                            }
+                        }
+                    }
+    
+                } catch (\Exception $e) {
+                    $errors[] = "Row $rowIndex failed: " . $e->getMessage();
+                    Log::error("Geo CSV row $rowIndex error: " . $e->getMessage());
+                }
+            }
+    
+            fclose($stream);
+    
+            if (!empty($errors)) {
+                Log::warning('Geo CSV sync had errors', ['errors' => $errors]);
+            }
+    
+            return "Geo sync: {$updatedProjects} project(s) updated, {$objectivesAdded} objective(s) added, {$skippedRows} skipped.";
+    
+        } catch (\Exception $e) {
+            Log::error('Geo CSV sync failed: ' . $e->getMessage());
+            return 'Geo sync failed: ' . $e->getMessage();
+        }
+    }
+ 
+    private function findColumnIndex(array $header, array $candidates): ?int
+    {
+        $lowerHeader = array_map('strtolower', $header);
+        foreach ($candidates as $candidate) {
+            $idx = array_search(strtolower($candidate), $lowerHeader);
+            if ($idx !== false) {
+                return (int) $idx;
+            }
+        }
+        return null;
     }
 
     private function parseMonthYear($part)
