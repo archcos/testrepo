@@ -295,7 +295,7 @@ public function syncFromCSV()
         return back()->with('error', 'Unauthorized: Only RPMO can sync projects from CSV.');
     }
 
-    $csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQoYM37FSpNPcliFztgpSVgglK0XyoDLSdhOftcdqmy2mV-83VVxuUf9EdcE57gFG36r06rwH66CZQO/pub?gid=0&single=true&output=csv';
+    $csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaVwyUliSn5WpljKA1D9vmkl7rtzdwxQNd_JLckiwnTpqxWnjrYbjX8_LYYPcUMcETV9ZmMI_25dzf/pub?gid=1462383477&single=true&output=csv';
     
     try {
         $response = Http::timeout(300)->get($csvUrl);
@@ -329,6 +329,7 @@ public function syncFromCSV()
         Log::info('CSV Headers loaded: ' . count($header) . ' columns');
 
         $newRecords = 0;
+        $updatedRecords = 0;
         $rowIndex = 1;
 
         $officeMap = [
@@ -362,39 +363,47 @@ public function syncFromCSV()
                 continue;
             }
 
-            $exists = ProponentModel::where('company_name', $company_name)->first();
-            if ($exists) {
-                Log::info("Skipped row $rowIndex existing proponent: $company_name");
-                continue;
-            }
+            // Normalize: strip trailing (2), (3), etc. — treat as the same proponent
+            $normalizedName = trim(preg_replace('/\s*\(\d+\)\s*$/', '', $company_name));
+            $isUpdated = preg_match('/\s*\(\d+\)\s*$/', $company_name); // true if it came in as (2), (3), etc.
 
-            // Determine office_id based on province
             $provinceName = $data['Province'] ?? null;
-            $officeId = $officeMap[$provinceName] ?? (session('office_id') ?? 1);
+            $officeId = $officeMap[$provinceName] ?? $user->office_id;
 
             try {
-                ProponentModel::create([
-                    'company_name'     => $company_name,
-                    'owner_name'       => $data['CEO'] ?? null,
-                    'email'            => $data['Email'] ?? null,
-                    'added_by'         => session('user_id') ?? 1,
-                    'office_id'        => $officeId,
-                    'street'           => $data["Bldg. No/Street/Subd."] ?? null,
-                    'barangay'         => $data['Barangay'] ?? null,
-                    'municipality'     => $data['Municipality'] ?? null,
-                    'province'         => $provinceName,
-                    'district'         => $data['District'] ?? null,
-                    'sex'              => $data['Sex'] ?? null,
-                    'products'         => $data['Products'] ?? null,
-                    'setup_industry'   => (function($val) {
-                        if (is_null($val)) return null;
-                        return (strtolower(trim($val)) === 'food processing') ? 'Food Processing' : $val;
-                    })($data['SETUP Industry Sector'] ?? null),                    
-                    'industry_type'    => $data['Type of Enterprise'] ?? null,
-                    'contact_number'   => $data['Contact number'] ?? null,
-                ]);
-                $newRecords++;
-                Log::info("Row $rowIndex: Inserted $company_name (office_id={$officeId})");
+                $proponent = ProponentModel::updateOrCreate(
+                    ['company_name' => $normalizedName], // match key
+                    [
+                        'owner_name'     => $data['CEO'] ?? null,
+                        'email'          => $data['Email'] ?? null,
+                        'added_by'       => Auth::id(),
+                        'office_id'      => $officeId,
+                        'street'         => $data["Bldg. No/Street/Subd."] ?? null,
+                        'barangay'       => $data['Barangay'] ?? null,
+                        'municipality'   => $data['Municipality'] ?? null,
+                        'province'       => $provinceName,
+                        'district'       => $data['District'] ?? null,
+                        'sex'            => $data['Sex'] ?? null,
+                        'products'       => $data['Products'] ?? null,
+                        'setup_industry' => (function($val) {
+                            if (is_null($val)) return null;
+                            return (strtolower(trim($val)) === 'food processing') ? 'Food Processing' : $val;
+                        })($data['SETUP Industry Sector'] ?? null),
+                        'industry_type'  => $data['Type of Enterprise'] ?? null,
+                        'contact_number' => $data['Contact number'] ?? null,
+                    ]
+                );
+
+                if ($proponent->wasRecentlyCreated) {
+                    $newRecords++;
+                    Log::info("Row $rowIndex: Inserted '$normalizedName' (office_id={$officeId})");
+                } elseif ($isUpdated) {
+                    $updatedRecords++;
+                    Log::info("Row $rowIndex: Updated '$normalizedName' from CSV entry '$company_name'");
+                } else {
+                    Log::info("Row $rowIndex: Skipped '$normalizedName' — no suffix, already exists");
+                }
+
             } catch (\Exception $e) {
                 Log::error("Row $rowIndex failed: " . $e->getMessage(), ['row' => $data]);
                 continue;
