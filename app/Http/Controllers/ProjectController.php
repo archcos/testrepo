@@ -680,7 +680,7 @@ private const VALID_PROGRESS_STATUSES = [
             return back()->with('error', 'Unauthorized: Only RPMO can sync projects from CSV.');
         }
 
-        $csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQoYM37FSpNPcliFztgpSVgglK0XyoDLSdhOftcdqmy2mV-83VVxuUf9EdcE57gFG36r06rwH66CZQO/pub?gid=0&single=true&output=csv';
+        $csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaVwyUliSn5WpljKA1D9vmkl7rtzdwxQNd_JLckiwnTpqxWnjrYbjX8_LYYPcUMcETV9ZmMI_25dzf/pub?gid=1462383477&single=true&output=csv';
 
         try {
             $response = Http::timeout(300)->get($csvUrl);
@@ -718,18 +718,36 @@ private const VALID_PROGRESS_STATUSES = [
                     if (!$data) continue;
 
                     $proponentName = trim($data['Name of the Business'] ?? '');
-                    if (!$proponentName) continue;
+                    if (!$proponentName) {
+                        $errors[] = "Row $rowIndex skipped: 'Name of the Business' is empty.";
+                        Log::warning("CSV Sync - Row $rowIndex skipped: 'Name of the Business' is empty.");
+                        continue;
+                    }
 
-                    $proponent = ProponentModel::where('company_name', $proponentName)->first();
-                    if (!$proponent) continue;
+                    // Normalize: strip trailing (2), (3), etc. so duplicates match the same proponent
+                    $normalizedName = trim(preg_replace('/\s*\(\d+\)\s*$/', '', $proponentName));
 
+                    $proponent = ProponentModel::where('company_name', $normalizedName)->first();
+                    if (!$proponent) {
+                        $errors[] = "Row $rowIndex skipped: No matching proponent found for '$proponentName' (normalized: '$normalizedName').";
+                        Log::warning("CSV Sync - Row $rowIndex skipped: No proponent matched company_name='$normalizedName' (original: '$proponentName').");
+                        continue;
+                    }
+                
                     $projectCode = preg_replace('/[^0-9]/', '', $data['Project Code'] ?? '');
-                    if (empty($projectCode)) continue;
+                    if (empty($projectCode)) {
+                        $errors[] = "Row $rowIndex skipped: 'Project Code' is empty or non-numeric (raw value: '" . ($data['Project Code'] ?? '') . "').";
+                        Log::warning("CSV Sync - Row $rowIndex skipped: Empty/non-numeric Project Code for proponent '$proponentName'.");
+                        continue;
+                    }
 
                     $projectId = (int) $projectCode;
                     if ($projectId === 0) $projectId = (int)(time() . mt_rand(100, 999));
 
-                    if (ProjectModel::where('project_id', $projectId)->exists()) continue;
+                    if (ProjectModel::where('project_id', $projectId)->exists()) {
+                        Log::info("CSV Sync - Row $rowIndex skipped: Project ID $projectId already exists (proponent: '$proponentName').");
+                        continue;
+                    }
 
                     [$releaseInitial, $releaseEnd] = $this->splitMonthYear($data['Original Project Duration'] ?? '');
                     [$refundInitial, $refundEnd] = $this->splitMonthYear($data['Original Refund Schedule'] ?? '');
@@ -784,6 +802,29 @@ private const VALID_PROGRESS_STATUSES = [
 
                     if (!ImplementationModel::where('project_id', $project->project_id)->exists() && $progress === 'Implementation') {
                         ImplementationModel::create(['project_id' => $project->project_id, 'tarp' => null, 'pdc' => null, 'liquidation' => null]);
+                    }
+
+                    $barangay   = trim($data['Barangay'] ?? '');
+                    $municipality = trim($data['Municipality'] ?? '');
+
+                    $placeParts = array_filter([$barangay, $municipality]);
+                    $placeName  = implode(', ', $placeParts);
+
+                    if ($placeName) {
+                        $existingMarket = MarketModel::where('project_id', $project->project_id)
+                            ->where('type', 'existing')
+                            ->first();
+
+                        if ($existingMarket) {
+                            $existingMarket->place_name = $placeName;
+                            $existingMarket->save();
+                        } else {
+                            MarketModel::create([
+                                'project_id' => $project->project_id,
+                                'place_name' => $placeName,
+                                'type'       => 'existing',
+                            ]);
+                        }
                     }
 
                     $newRecords++;
