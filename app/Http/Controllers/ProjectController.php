@@ -762,7 +762,7 @@ private const VALID_PROGRESS_STATUSES = [
                     $releasedAmountRaw = str_replace([',', ' '], '', trim($data['Amount of Released Assistance'] ?? '0'));
                     $releasedAmount = is_numeric($releasedAmountRaw) ? (float) $releasedAmountRaw : 0;
 
-                    $status = trim($data['STATUS'] ?? '');
+                    $status = trim($data['Status of Implementation (On-Time, Delayed, Terminated, Graduated) . This is linked to Project Monitoring Database'] ?? '');
                     $progress = match($status) {
                         'WITHDRAWN' => 'Withdrawn',
                         'TERMINATED' => 'Terminated',

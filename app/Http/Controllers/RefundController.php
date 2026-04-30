@@ -349,6 +349,14 @@ class RefundController extends Controller
             // Save the refund
             Log::info('Saving refund...');
             
+            // Before the updateOrCreate, capture the existing status
+            $existingRefund = RefundModel::where('project_id', $data['project_id'])
+                ->where('month_paid', $savedMonthDate)
+                ->first();
+
+            $statusChanged = !$existingRefund || $existingRefund->status !== $data['status'];
+
+            // Save the refund (your existing updateOrCreate stays the same)
             $refund = RefundModel::updateOrCreate(
                 [
                     'project_id' => $data['project_id'],
@@ -362,7 +370,7 @@ class RefundController extends Controller
                     'status'        => $data['status'],
                 ]
             );
-            
+
             Log::info('Refund saved:', [
                 'refund_id' => $refund->refund_id ?? 'N/A',
                 'status' => $refund->status,
@@ -385,18 +393,22 @@ class RefundController extends Controller
             $proponentName = $proponent?->company_name ?? 'N/A';
 
             // Send email notification
-            if ($proponent && $proponent->email) {
+            if ($proponent && $proponent->email && $statusChanged) {
                 try {
                     Log::info('Sending email to: ' . $proponent->email);
                     
-                    Mail::to($proponent->email)->send(
+                   Mail::to($proponent->email)->send(
                         new \App\Mail\RefundNotificationMail(
                             $ownerName,
                             $projectTitle,
                             $proponentName,
                             $readableMonth,
                             $data['status'],
-                            $refund->amount_due
+                            $data['amount_due'] ?? 0,           // Parameter 6
+                            $data['refund_amount'],             // Parameter 7 - NEW
+                            $data['amount_due'] ?? 0,           // Parameter 8 - NEW
+                            $data['check_num'] ?? null,         // Parameter 9 - NEW
+                            $data['receipt_num'] ?? null        // Parameter 10 - NEW
                         )
                     );
                     Log::info("Refund notification email sent to {$proponent->email}");
@@ -415,12 +427,8 @@ class RefundController extends Controller
                 }
             }
 
-            $message = 'Refund saved successfully.';
-            if ($savedMonthDate === $refundEnd && $completionCheck && $completionCheck['is_complete']) {
-                $message .= ' Project status updated to Completed.';
-            }
-
-            return back()->with('success', $message);
+            // ✅ NO SUCCESS MESSAGE - Silent success, page will reload automatically via Inertia
+            return back()->with('preserveScroll', true);
         } catch (\Exception $e) {
 
             return back()->with('error', 'An error occurred while saving: ' . $e->getMessage());
@@ -638,11 +646,8 @@ class RefundController extends Controller
                 ]);
             }
 
-            $message = "{$updatedCount} month(s) updated successfully to " . strtoupper($data['status']) . ".";
-            if ($isMarkingAsComplete) {
-                $message .= ' Project status updated to Completed.';
-            }
-            return back()->with('success', $message);
+            // ✅ NO SUCCESS MESSAGE - Silent success
+            return back();
         } catch (\Exception $e) {
 
             return back()->with('error', 'An error occurred while updating: ' . $e->getMessage());
