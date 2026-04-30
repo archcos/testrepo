@@ -367,8 +367,16 @@ public function syncFromCSV()
             $normalizedName = trim(preg_replace('/\s*\(\d+\)\s*$/', '', $company_name));
             $isUpdated = preg_match('/\s*\(\d+\)\s*$/', $company_name); // true if it came in as (2), (3), etc.
 
-            $provinceName = $data['Province'] ?? null;
-            $officeId = $officeMap[$provinceName] ?? $user->office_id;
+            $provinceNameMap = [
+                'BUK' => 'Bukidnon',
+                'CAM' => 'Camiguin',
+                'LDN' => 'Lanao Del Norte',
+                'MOC' => 'Misamis Occidental',
+                'MOR' => 'Misamis Oriental',
+            ];
+
+            $provinceName = $provinceNameMap[$data['Province'] ?? ''] ?? ($data['Province'] ?? null);
+            $officeId = $officeMap[$data['Province'] ?? ''] ?? $user->office_id; // still use raw abbreviation for office lookup
 
             try {
                 $proponent = ProponentModel::updateOrCreate(
