@@ -165,14 +165,18 @@ class RefundController extends Controller
                         $status = $monthRefund->status;
                         $amountDue = $monthRefund->amount_due;
                         $checkNum = $monthRefund->check_num;
+                        $checkDate = $monthRefund->check_date;
                         $receiptNum = $monthRefund->receipt_num;
+                        $receiptDate = $monthRefund->receipt_date;
                     } else {
                         // Get refund amount considering restructures and updates
                         $refundAmount = $this->getRefundAmountForMonth($project, $start);
                         $status = 'unpaid';
                         $amountDue = $refundAmount;
                         $checkNum = null;
+                        $checkDate = null;
                         $receiptNum = null;
+                        $receiptDate = null;
                     }
 
                     // Calculate totals
@@ -191,7 +195,9 @@ class RefundController extends Controller
                         'amount_due' => $amountDue,
                         'status' => $status,
                         'check_num' => $checkNum,
+                        'check_date' => $checkDate,
                         'receipt_num' => $receiptNum,
+                        'receipt_date' => $receiptDate,
                         'is_past' => $start->isPast(),
                     ];
 
@@ -240,7 +246,9 @@ class RefundController extends Controller
             'refund_amount'  => 'required|numeric|min:0',
             'amount_due'     => 'nullable|numeric|min:0',
             'check_num'      => 'nullable|string|max:10', 
+            'check_date'     => 'nullable|date_format:Y-m-d',
             'receipt_num'    => 'nullable|string|max:10',
+            'receipt_date'   => 'nullable|date_format:Y-m-d',
             'status'         => 'required|in:paid,unpaid,restructured',
             'save_date'      => 'required|date_format:Y-m-d',
         ]);
@@ -366,7 +374,9 @@ class RefundController extends Controller
                     'refund_amount' => $data['refund_amount'],
                     'amount_due'    => $data['amount_due'],
                     'check_num'     => $data['check_num'] ?? null,
+                    'check_date'    => $data['check_date'] ?? null,
                     'receipt_num'   => $data['receipt_num'] ?? null,
+                    'receipt_date'  => $data['receipt_date'] ?? null,
                     'status'        => $data['status'],
                 ]
             );
@@ -405,10 +415,12 @@ class RefundController extends Controller
                             $readableMonth,
                             $data['status'],
                             $data['amount_due'] ?? 0,           // Parameter 6
-                            $data['refund_amount'],             // Parameter 7 - NEW
-                            $data['amount_due'] ?? 0,           // Parameter 8 - NEW
-                            $data['check_num'] ?? null,         // Parameter 9 - NEW
-                            $data['receipt_num'] ?? null        // Parameter 10 - NEW
+                            $data['refund_amount'],             // Parameter 7
+                            $data['amount_due'] ?? 0,           // Parameter 8
+                            $data['check_num'] ?? null,         // Parameter 9
+                            $data['receipt_num'] ?? null,       // Parameter 10
+                            $data['check_date'] ?? null,        // Parameter 11 - NEW
+                            $data['receipt_date'] ?? null       // Parameter 12 - NEW
                         )
                     );
                     Log::info("Refund notification email sent to {$proponent->email}");
@@ -615,11 +627,15 @@ class RefundController extends Controller
 
                 // Get individual check_num and receipt_num for this month
                 $checkNum = $monthDetails[$monthDate]['check_num'] ?? null;
+                $checkDate = $monthDetails[$monthDate]['check_date'] ?? null;
                 $receiptNum = $monthDetails[$monthDate]['receipt_num'] ?? null;
+                $receiptDate = $monthDetails[$monthDate]['receipt_date'] ?? null;
 
                 // Only save if values are not empty strings
                 $checkNum = !empty($checkNum) ? $checkNum : null;
+                $checkDate = !empty($checkDate) ? $checkDate : null;
                 $receiptNum = !empty($receiptNum) ? $receiptNum : null;
+                $receiptDate = !empty($receiptDate) ? $receiptDate : null;
 
                 RefundModel::updateOrCreate(
                     [
@@ -631,7 +647,9 @@ class RefundController extends Controller
                         'amount_due'    => $amountDue,
                         'status'        => $data['status'],
                         'check_num'     => $checkNum,
+                        'check_date'    => $checkDate,
                         'receipt_num'   => $receiptNum,
+                        'receipt_date'  => $receiptDate,
                     ]
                 );
                 
@@ -693,14 +711,18 @@ public function userProjectRefunds($projectId)
                     $status = $monthRefund->status;
                     $amountDue = $monthRefund->amount_due;
                     $checkNum = $monthRefund->check_num;
+                    $checkDate = $monthRefund->check_date;
                     $receiptNum = $monthRefund->receipt_num;
+                    $receiptDate = $monthRefund->receipt_date;
                 } else {
                     // Get refund amount considering restructures and updates
                     $refundAmount = $this->getRefundAmountForMonth($project, $start);
                     $status = 'unpaid';
                     $amountDue = $refundAmount;
                     $checkNum = null;
+                    $checkDate = null;
                     $receiptNum = null;
+                    $receiptDate = null;
                 }
 
                 // Calculate totals
@@ -719,7 +741,9 @@ public function userProjectRefunds($projectId)
                     'amount_due' => $amountDue,
                     'status' => $status,
                     'check_num' => $checkNum,
+                    'check_date' => $checkDate,
                     'receipt_num' => $receiptNum,
+                    'receipt_date' => $receiptDate,
                     'is_past' => $start->isPast(),
                 ];
 
