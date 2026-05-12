@@ -770,6 +770,17 @@ private const VALID_PROGRESS_STATUSES = [
                         default => 'Implementation',
                     };
 
+                    // Override to 'Refund' if today falls within the refund period
+                    if ($progress === 'Implementation' && $refundInitial && $refundEnd) {
+                        $today = now()->startOfDay();
+                        $refundStart = \Carbon\Carbon::parse($refundInitial)->startOfDay();
+                        $refundFinish = \Carbon\Carbon::parse($refundEnd)->startOfDay();
+
+                        if ($today->between($refundStart, $refundFinish)) {
+                            $progress = 'Refund';
+                        }
+                    }
+
                     $project = ProjectModel::updateOrCreate(
                         ['project_id' => $projectId],
                         [
@@ -836,7 +847,7 @@ private const VALID_PROGRESS_STATUSES = [
 
             fclose($stream);
             $geoSummary = $this->syncGeoAndObjectivesFromCSV();
-          
+        
             $message = "$newRecords projects synced successfully.";
             if (!empty($errors)) $message .= ' ' . count($errors) . ' rows had errors.';
             
